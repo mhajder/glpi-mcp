@@ -1,0 +1,533 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.mhajder/glpi-mcp",
+  "description": "MCP server for GLPI IT service management (tickets, assets, users, knowledge base)",
+  "title": "GLPI MCP",
+  "websiteUrl": "https://github.com/mhajder/glpi-mcp",
+  "repository": {
+    "url": "https://github.com/mhajder/glpi-mcp",
+    "source": "github"
+  },
+  "version": "0.0.1",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "glpi-mcp-server",
+      "version": "0.0.1",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "GLPI_URL",
+          "description": "GLPI root URL without /api.php (e.g., https://glpi.example.com); needs GLPI 11.0.6+ or 12",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_CLIENT_ID",
+          "description": "OAuth client ID from GLPI Setup > OAuth clients",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_CLIENT_SECRET",
+          "description": "OAuth client secret from GLPI Setup > OAuth clients",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "GLPI_USERNAME",
+          "description": "GLPI user the tools act as (OAuth password grant)",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_PASSWORD",
+          "description": "Password of the GLPI user",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "GLPI_SCOPES",
+          "description": "OAuth scopes to request, space- or comma-separated (add graphql for GraphQL)",
+          "default": "api user",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_API_VERSION",
+          "description": "High-Level API version: auto, 2.3 or 3.0",
+          "default": "auto",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_ENTITY",
+          "description": "Entity ID to work in (GLPI-Entity header)",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_ENTITY_RECURSIVE",
+          "description": "Include sub-entities of GLPI_ENTITY",
+          "default": "false",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_PROFILE",
+          "description": "Profile ID to work with (GLPI-Profile header)",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_VERIFY_SSL",
+          "description": "Verify SSL certificates",
+          "default": "true",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_TIMEOUT",
+          "description": "Total seconds allowed for one request, retries included",
+          "default": "30",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "READ_ONLY_MODE",
+          "description": "Enable read-only mode to restrict write operations",
+          "default": "false",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "DRY_RUN_MODE",
+          "description": "Write tools return the request they would send instead of changing GLPI",
+          "default": "false",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "DISABLED_TAGS",
+          "description": "Comma-separated list of tags to disable tools for",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "RESPONSE_MAX_SIZE",
+          "description": "Maximum size of a tool response in bytes (empty = unlimited)",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "LOG_LEVEL",
+          "description": "Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
+          "default": "INFO",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "RATE_LIMIT_ENABLED",
+          "description": "Enable rate limiting",
+          "default": "false",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "RATE_LIMIT_MAX_REQUESTS",
+          "description": "Maximum requests per rate limit window",
+          "default": "60",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "RATE_LIMIT_WINDOW_MINUTES",
+          "description": "Rate limit window in minutes",
+          "default": "1",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "TOOL_SEARCH_ENABLED",
+          "description": "Enable FastMCP tool search transform",
+          "default": "false",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "TOOL_SEARCH_STRATEGY",
+          "description": "Tool search strategy (bm25 or regex)",
+          "default": "bm25",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "TOOL_SEARCH_MAX_RESULTS",
+          "description": "Maximum tool search results returned by search_tools",
+          "default": "5",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    },
+    {
+      "registryType": "pypi",
+      "identifier": "glpi-mcp-server",
+      "version": "0.0.1",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "streamable-http",
+        "url": "http://localhost:{MCP_HTTP_PORT}/mcp"
+      },
+      "environmentVariables": [
+        {
+          "name": "GLPI_URL",
+          "description": "GLPI root URL without /api.php (e.g., https://glpi.example.com); needs GLPI 11.0.6+ or 12",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_CLIENT_ID",
+          "description": "OAuth client ID from GLPI Setup > OAuth clients",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_CLIENT_SECRET",
+          "description": "OAuth client secret from GLPI Setup > OAuth clients",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "GLPI_USERNAME",
+          "description": "GLPI user the tools act as (OAuth password grant)",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_PASSWORD",
+          "description": "Password of the GLPI user",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "GLPI_SCOPES",
+          "description": "OAuth scopes to request, space- or comma-separated (add graphql for GraphQL)",
+          "default": "api user",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_API_VERSION",
+          "description": "High-Level API version: auto, 2.3 or 3.0",
+          "default": "auto",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_ENTITY",
+          "description": "Entity ID to work in (GLPI-Entity header)",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_ENTITY_RECURSIVE",
+          "description": "Include sub-entities of GLPI_ENTITY",
+          "default": "false",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_PROFILE",
+          "description": "Profile ID to work with (GLPI-Profile header)",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_VERIFY_SSL",
+          "description": "Verify SSL certificates",
+          "default": "true",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_TIMEOUT",
+          "description": "Total seconds allowed for one request, retries included",
+          "default": "30",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "READ_ONLY_MODE",
+          "description": "Enable read-only mode to restrict write operations",
+          "default": "false",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "DRY_RUN_MODE",
+          "description": "Write tools return the request they would send instead of changing GLPI",
+          "default": "false",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "DISABLED_TAGS",
+          "description": "Comma-separated list of tags to disable tools for",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "RESPONSE_MAX_SIZE",
+          "description": "Maximum size of a tool response in bytes (empty = unlimited)",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "LOG_LEVEL",
+          "description": "Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
+          "default": "INFO",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "RATE_LIMIT_ENABLED",
+          "description": "Enable rate limiting",
+          "default": "false",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "RATE_LIMIT_MAX_REQUESTS",
+          "description": "Maximum requests per rate limit window",
+          "default": "60",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "RATE_LIMIT_WINDOW_MINUTES",
+          "description": "Rate limit window in minutes",
+          "default": "1",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "TOOL_SEARCH_ENABLED",
+          "description": "Enable FastMCP tool search transform",
+          "default": "false",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "TOOL_SEARCH_STRATEGY",
+          "description": "Tool search strategy (bm25 or regex)",
+          "default": "bm25",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "TOOL_SEARCH_MAX_RESULTS",
+          "description": "Maximum tool search results returned by search_tools",
+          "default": "5",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_HTTP_PORT",
+          "description": "Port for HTTP server (default: 8000)",
+          "default": "8000",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_TRANSPORT",
+          "description": "MCP transport type: stdio, sse, or http (alias: streamable-http)",
+          "value": "http",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    },
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/mhajder/glpi-mcp:0.0.1",
+      "transport": {
+        "type": "streamable-http",
+        "url": "http://localhost:{MCP_HTTP_PORT}/mcp"
+      },
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "-p",
+          "value": "{MCP_HTTP_PORT}:8000",
+          "description": "Port mapping for HTTP transport",
+          "isRequired": true
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "GLPI_URL",
+          "description": "GLPI root URL without /api.php (e.g., https://glpi.example.com); needs GLPI 11.0.6+ or 12",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_CLIENT_ID",
+          "description": "OAuth client ID from GLPI Setup > OAuth clients",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_CLIENT_SECRET",
+          "description": "OAuth client secret from GLPI Setup > OAuth clients",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "GLPI_USERNAME",
+          "description": "GLPI user the tools act as (OAuth password grant)",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_PASSWORD",
+          "description": "Password of the GLPI user",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "GLPI_SCOPES",
+          "description": "OAuth scopes to request, space- or comma-separated (add graphql for GraphQL)",
+          "default": "api user",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_API_VERSION",
+          "description": "High-Level API version: auto, 2.3 or 3.0",
+          "default": "auto",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_ENTITY",
+          "description": "Entity ID to work in (GLPI-Entity header)",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_ENTITY_RECURSIVE",
+          "description": "Include sub-entities of GLPI_ENTITY",
+          "default": "false",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_PROFILE",
+          "description": "Profile ID to work with (GLPI-Profile header)",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_VERIFY_SSL",
+          "description": "Verify SSL certificates",
+          "default": "true",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_TIMEOUT",
+          "description": "Total seconds allowed for one request, retries included",
+          "default": "30",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "READ_ONLY_MODE",
+          "description": "Enable read-only mode to restrict write operations",
+          "default": "false",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "DRY_RUN_MODE",
+          "description": "Write tools return the request they would send instead of changing GLPI",
+          "default": "false",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "DISABLED_TAGS",
+          "description": "Comma-separated list of tags to disable tools for",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "RESPONSE_MAX_SIZE",
+          "description": "Maximum size of a tool response in bytes (empty = unlimited)",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "LOG_LEVEL",
+          "description": "Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
+          "default": "INFO",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "RATE_LIMIT_ENABLED",
+          "description": "Enable rate limiting",
+          "default": "false",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "RATE_LIMIT_MAX_REQUESTS",
+          "description": "Maximum requests per rate limit window",
+          "default": "60",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "RATE_LIMIT_WINDOW_MINUTES",
+          "description": "Rate limit window in minutes",
+          "default": "1",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "TOOL_SEARCH_ENABLED",
+          "description": "Enable FastMCP tool search transform",
+          "default": "false",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "TOOL_SEARCH_STRATEGY",
+          "description": "Tool search strategy (bm25 or regex)",
+          "default": "bm25",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "TOOL_SEARCH_MAX_RESULTS",
+          "description": "Maximum tool search results returned by search_tools",
+          "default": "5",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_HTTP_PORT",
+          "description": "Port for HTTP server (default: 8000)",
+          "default": "8000",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "GLPI MCP Server"
+abstract: "MCP server for GLPI 11.0.6+ and 12 (IT service management) over the High-Level API: tickets, changes and problems with their timeline and team, assets, users, groups, entities, the knowledge base, documents and generic access to every endpoint. OAuth password grant, per-user token passthrough or GLPI/OIDC login; read-only and dry-run modes, tag-based tool filtering and rate limiting."
+authors:
+  - given-names: Mateusz
+    family-names: Hajder
+repository-code: "https://github.com/mhajder/glpi-mcp"
+url: "https://pypi.org/project/glpi-mcp-server/"
+license: MIT
+version: 0.0.1
+keywords:
+  - mcp
+  - mcp-server
+  - model-context-protocol
+  - fastmcp
+  - ai-agents
+  - glpi
+  - itsm
+  - helpdesk
+  - asset-management

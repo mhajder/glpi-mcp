@@ -1,0 +1,202 @@
+name: Publish
+
+on:
+  push:
+    branches: ["main"]
+    tags:
+      - "v*.*.*"
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  publish-docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # Required to sign the build provenance attestation
+      attestations: write # Required to store the build provenance attestation
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            # Set latest tag for main branch
+            type=raw,value=latest,enable={{is_default_branch}}
+            # Tag with branch name (e.g., main, develop)
+            type=ref,event=branch
+            # Tag with PR number (e.g., pr-2)
+            type=ref,event=pr
+            # Tag with semver - v1.2.3 -> 1.2.3
+            type=semver,pattern={{version}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            # Tag with major.minor - v1.2.3 -> 1.2
+            type=semver,pattern={{major}}.{{minor}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            # Tag with major - v1.2.3 -> 1
+            type=semver,pattern={{major}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            # Tag with git sha
+            type=sha,format=short
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: mode=max
+          sbom: true
+
+      - name: Attest image build provenance
+        if: github.event_name != 'pull_request'
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+          # Storage records are only supported for organization-owned repositories
+          create-storage-record: false
+
+  publish-pypi:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/glpi-mcp-server
+    permissions:
+      id-token: write # Mandatory for Trusted Publishing
+      attestations: write # Required to store the build provenance attestation
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install the latest version of uv and set the python version
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.15"
+
+      - name: Install dependencies
+        run: uv sync --locked --all-extras --no-dev
+
+      - name: Build package
+        run: uv build
+
+      - name: Attest package build provenance
+        id: attest
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/*
+
+      - name: Collect release assets
+        env:
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          mkdir release-assets
+          cp dist/* release-assets/
+          cp "$BUNDLE_PATH" "release-assets/${GITHUB_REPOSITORY#*/}-${GITHUB_REF_NAME#v}.sigstore.json"
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-assets
+          path: release-assets/
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  upload-release-assets:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    needs: [publish-pypi]
+    permissions:
+      contents: write # Required to upload assets to the GitHub release
+
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v8
+        with:
+          name: release-assets
+          path: release-assets
+
+      - name: Upload assets to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # release.yml creates the release in parallel with this workflow
+          for attempt in $(seq 1 10); do
+            if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+              gh release upload "$GITHUB_REF_NAME" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
+              exit 0
+            fi
+            echo "Release $GITHUB_REF_NAME not found yet, retrying in 15s ($attempt/10)"
+            sleep 15
+          done
+          echo "::error::Release $GITHUB_REF_NAME not found"
+          exit 1
+
+  publish-mcp-registry:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    needs: [publish-pypi, publish-docker]
+    permissions:
+      id-token: write # Required for OIDC authentication
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+          chmod +x mcp-publisher
+
+      - name: Publish server to MCP Registry
+        run: |
+          max_attempts=5
+          for attempt in $(seq 1 "$max_attempts"); do
+            if ./mcp-publisher login github-oidc; then
+              if output=$(./mcp-publisher publish 2>&1); then
+                echo "$output"
+                exit 0
+              fi
+              echo "$output"
+              # An earlier attempt may have published before its response was lost
+              if grep -q "cannot publish duplicate version" <<< "$output"; then
+                echo "This version is already in the MCP Registry"
+                exit 0
+              fi
+            fi
+            if [ "$attempt" -lt "$max_attempts" ]; then
+              echo "::warning::MCP Registry publish attempt $attempt/$max_attempts failed, retrying in $((attempt * 20))s"
+              sleep $((attempt * 20))
+            fi
+          done
+          echo "::error::MCP Registry publish failed after $max_attempts attempts"
+          exit 1
