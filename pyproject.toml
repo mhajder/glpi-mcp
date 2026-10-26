@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "glpi-mcp-server"
-version = "0.0.1"
+version = "0.1.0"
 description = "MCP server for GLPI IT service management (High-Level API, GLPI 11 and 12)"
 readme = "README.md"
 requires-python = ">=3.11,<3.16"
