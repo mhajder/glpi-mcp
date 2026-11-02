@@ -1,4 +1,5 @@
 import base64
+import json
 
 import pytest
 from fastmcp import Client
@@ -529,3 +530,737 @@ def test_html_to_text_drops_style_and_script_and_keeps_br_single():
     )
     assert html_to_text(mail) == "Hello"
     assert html_to_text("<p>a<br>b<br/>c</p>") == "a\nb\nc"
+
+
+# ------------------------------------------------------------ GLPI errors
+
+# (tool, arguments, request GLPI refuses, message prefix). FakeGlpi answers
+# every unmocked request with HTTP 418, so each call fails on that request.
+ERROR_CALLS = [
+    ("glpi_whoami", {}, "GET session", "Error reading the GLPI session"),
+    (
+        "glpi_get_entity_tree",
+        {},
+        "GET Session/EntityTree",
+        "Error reading the entity tree",
+    ),
+    ("glpi_list_endpoints", {}, "GET doc.json", "Error listing endpoints"),
+    ("glpi_describe_schema", {}, "GET doc.json", "Error describing schema"),
+    (
+        "glpi_list_items",
+        {"path": "Management/Contract"},
+        "GET Management/Contract",
+        "Error listing items",
+    ),
+    (
+        "glpi_get_item",
+        {"path": "Management/Contract", "item_id": 2},
+        "GET Management/Contract/2",
+        "Error getting item",
+    ),
+    (
+        "glpi_create_item",
+        {"path": "Management/Contract", "payload": {"name": "c"}},
+        "POST Management/Contract",
+        "Error creating item",
+    ),
+    (
+        "glpi_update_item",
+        {"path": "Management/Contract", "item_id": 2, "payload": {"name": "c"}},
+        "PATCH Management/Contract/2",
+        "Error updating item",
+    ),
+    (
+        "glpi_delete_item",
+        {"path": "Management/Contract", "item_id": 2},
+        "DELETE Management/Contract/2",
+        "Error deleting item",
+    ),
+    (
+        "glpi_graphql_query",
+        {"query": "{ Ticket { id } }"},
+        "POST GraphQL",
+        "Error running GraphQL query",
+    ),
+    (
+        "glpi_search_itil",
+        {"itil_type": "Problem"},
+        "GET Assistance/Problem",
+        "Error searching problems",
+    ),
+    (
+        "glpi_get_itil",
+        {"item_id": 3, "itil_type": "Change"},
+        "GET Assistance/Change/3",
+        "Error getting change 3",
+    ),
+    (
+        "glpi_get_itil_timeline",
+        {"item_id": 3},
+        "GET Assistance/Ticket/3/Timeline",
+        "Error getting the timeline of Ticket 3",
+    ),
+    (
+        "glpi_create_itil",
+        {"name": "t", "content": "c", "itil_type": "Problem"},
+        "POST Assistance/Problem",
+        "Error creating problem",
+    ),
+    (
+        "glpi_update_itil",
+        {"item_id": 3, "changes": {"status": 2}},
+        "PATCH Assistance/Ticket/3",
+        "Error updating ticket 3",
+    ),
+    (
+        "glpi_delete_itil",
+        {"item_id": 3},
+        "DELETE Assistance/Ticket/3",
+        "Error deleting ticket 3",
+    ),
+    (
+        "glpi_add_itil_followup",
+        {"item_id": 3, "content": "c"},
+        "POST Assistance/Ticket/3/Timeline/Followup",
+        "Error adding a followup to Ticket 3",
+    ),
+    (
+        "glpi_add_itil_task",
+        {"item_id": 3, "content": "c"},
+        "POST Assistance/Ticket/3/Timeline/Task",
+        "Error adding a task to Ticket 3",
+    ),
+    (
+        "glpi_add_itil_solution",
+        {"item_id": 3, "content": "c"},
+        "POST Assistance/Ticket/3/Timeline/Solution",
+        "Error adding a solution to Ticket 3",
+    ),
+    (
+        "glpi_request_itil_validation",
+        {"item_id": 3, "approver_id": 2},
+        "POST Assistance/Ticket/3/Timeline/Validation",
+        "Error requesting approval of Ticket 3",
+    ),
+    (
+        "glpi_list_itil_team",
+        {"item_id": 3},
+        "GET Assistance/Ticket/3/TeamMember",
+        "Error listing the team of Ticket 3",
+    ),
+    (
+        "glpi_add_itil_team_member",
+        {"item_id": 3, "member_type": "User", "member_id": 2, "role": "observer"},
+        "POST Assistance/Ticket/3/TeamMember",
+        "Error adding a team member to Ticket 3",
+    ),
+    (
+        "glpi_remove_itil_team_member",
+        {"item_id": 3, "member_type": "User", "member_id": 2, "role": "observer"},
+        "DELETE Assistance/Ticket/3/TeamMember",
+        "Error removing a team member from Ticket 3",
+    ),
+    ("glpi_list_asset_types", {}, "GET doc.json", "Error listing asset types"),
+    ("glpi_search_assets", {}, "GET Assets/Global", "Error searching assets"),
+    (
+        "glpi_get_asset",
+        {"asset_type": "Printer", "asset_id": 4},
+        "GET Assets/Printer/4",
+        "Error getting Printer 4",
+    ),
+    (
+        "glpi_create_asset",
+        {"asset_type": "Printer", "payload": {"name": "p"}},
+        "POST Assets/Printer",
+        "Error creating Printer",
+    ),
+    (
+        "glpi_update_asset",
+        {"asset_type": "Printer", "asset_id": 4, "changes": {"name": "p"}},
+        "PATCH Assets/Printer/4",
+        "Error updating Printer 4",
+    ),
+    (
+        "glpi_delete_asset",
+        {"asset_type": "Printer", "asset_id": 4},
+        "DELETE Assets/Printer/4",
+        "Error deleting Printer 4",
+    ),
+    (
+        "glpi_search_users",
+        {},
+        "GET Administration/User",
+        "Error searching users",
+    ),
+    (
+        "glpi_get_user",
+        {"user_id": 8},
+        "GET Administration/User/8",
+        "Error getting user",
+    ),
+    (
+        "glpi_search_groups",
+        {},
+        "GET Administration/Group",
+        "Error searching groups",
+    ),
+    (
+        "glpi_get_group",
+        {"group_id": 5},
+        "GET Administration/Group/5",
+        "Error getting group 5",
+    ),
+    (
+        "glpi_search_entities",
+        {},
+        "GET Administration/Entity",
+        "Error searching entities",
+    ),
+    (
+        "glpi_get_entity",
+        {"entity_id": 0},
+        "GET Administration/Entity/0",
+        "Error getting entity 0",
+    ),
+    (
+        "glpi_list_profiles",
+        {},
+        "GET Administration/Profile",
+        "Error listing profiles",
+    ),
+    (
+        "glpi_search_kb_articles",
+        {},
+        "GET Knowledgebase/Article",
+        "Error searching the knowledge base",
+    ),
+    (
+        "glpi_get_kb_article",
+        {"article_id": 6},
+        "GET Knowledgebase/Article/6",
+        "Error getting KB article 6",
+    ),
+    (
+        "glpi_create_kb_article",
+        {"name": "n", "content": "c"},
+        "POST Knowledgebase/Article",
+        "Error creating KB article",
+    ),
+    (
+        "glpi_update_kb_article",
+        {"article_id": 6, "changes": {"name": "n"}},
+        "PATCH Knowledgebase/Article/6",
+        "Error updating KB article 6",
+    ),
+    (
+        "glpi_list_kb_categories",
+        {},
+        "GET Knowledgebase/Category",
+        "Error listing KB categories",
+    ),
+    (
+        "glpi_search_documents",
+        {},
+        "GET Management/Document",
+        "Error searching documents",
+    ),
+    (
+        "glpi_get_document",
+        {"document_id": 7},
+        "GET Management/Document/7",
+        "Error getting document 7",
+    ),
+    (
+        "glpi_download_document",
+        {"document_id": 7},
+        "GET Management/Document/7/Download",
+        "Error downloading document 7",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("tool", "args", "request_line", "prefix"),
+    ERROR_CALLS,
+    ids=[c[0] for c in ERROR_CALLS],
+)
+async def test_glpi_error_becomes_a_tool_error(
+    config, client_for, tool, args, request_line, prefix
+):
+    async with client_for(config) as client:
+        with pytest.raises(ToolError) as info:
+            await client.call_tool(tool, args)
+    assert str(info.value) == (
+        f'{prefix}: HTTP 418 from GLPI ({request_line}): {{"detail": "not mocked"}}'
+    )
+
+
+def test_every_tool_has_an_error_case():
+    # glpi_server_info only reads the version list; see the next test.
+    assert {c[0] for c in ERROR_CALLS} | {"glpi_server_info"} == (
+        READ_TOOLS | WRITE_TOOLS
+    )
+
+
+async def test_server_info_reports_a_glpi_without_the_api(config, client_for, glpi):
+    glpi.routes[("GET", "/api.php/")] = [(404, None, {})]
+    async with client_for(config) as client:
+        with pytest.raises(
+            ToolError, match=r"^Error reading GLPI server info: .*11\.0\.6"
+        ):
+            await client.call_tool("glpi_server_info", {})
+
+
+# ------------------------------------------------------------ session
+
+
+def test_auth_mode_names_each_mode(config):
+    from glpi_mcp.tools.session import auth_mode
+
+    assert auth_mode(config) == "password-grant (as glpi)"
+    assert auth_mode(config.model_copy(update={"token_passthrough": True})) == (
+        "token-passthrough (each caller's own GLPI token)"
+    )
+    assert auth_mode(config.model_copy(update={"oauth_login": True})) == (
+        "glpi-login (each user's own GLPI account)"
+    )
+
+
+async def test_whoami_passes_an_unexpected_session_through(config, client_for, glpi):
+    glpi.get("session", payload=["not", "an", "object"])
+    glpi.get("Administration/User/Me", payload={"id": 2})
+    async with client_for(config) as client:
+        result = await client.call_tool("glpi_whoami", {})
+    assert result.data == {"session": ["not", "an", "object"], "user": {"id": 2}}
+
+
+async def test_whoami_reports_other_user_errors(config, client_for, glpi):
+    glpi.get("session", payload={"user_id": 2})
+    glpi.get("Administration/User/Me", status=404, payload={"status": "ERROR"})
+    async with client_for(config) as client:
+        with pytest.raises(ToolError, match=r"HTTP 404 .*GET Administration/User/Me"):
+            await client.call_tool("glpi_whoami", {})
+
+
+async def test_get_entity_tree(config, client_for, glpi):
+    tree = {"id": 0, "name": "Root", "children": [{"id": 1, "name": "Paris"}]}
+    glpi.get("Session/EntityTree", payload=tree)
+    async with client_for(config) as client:
+        result = await client.call_tool("glpi_get_entity_tree", {})
+    assert result.data == {"entity_tree": tree}
+
+
+# ------------------------------------------------------------ administration
+
+
+async def test_search_users_matches_names_of_active_users(config, client_for, glpi):
+    glpi.get(
+        "Administration/User",
+        payload=[{"id": 8, "username": "jdoe", "password_last_update": "x"}],
+    )
+    async with client_for(config) as client:
+        result = await client.call_tool(
+            "glpi_search_users", {"text": "do*e", "filters": {"entity.id": 1}}
+        )
+        await client.call_tool("glpi_search_users", {"active_only": False})
+    first, second = glpi.sent("GET", "Administration/User")
+    assert first.param("filter") == (
+        "(username=ilike=*doe*,firstname=ilike=*doe*,realname=ilike=*doe*);"
+        "is_active==1;entity.id==1"
+    )
+    # Only the summary properties are returned.
+    assert result.data["results"] == [{"id": 8, "username": "jdoe"}]
+    assert second.param("filter") is None
+
+
+async def test_get_user_by_id(config, client_for, glpi):
+    glpi.get("Administration/User/8", payload={"id": 8, "comment": "<p>VIP</p>"})
+    async with client_for(config) as client:
+        result = await client.call_tool("glpi_get_user", {"user_id": 8})
+    assert result.data == {"id": 8, "comment": "VIP"}
+
+
+@pytest.mark.parametrize("args", [{}, {"user_id": 8, "username": "jdoe"}])
+async def test_get_user_needs_exactly_one_key(config, client_for, glpi, args):
+    async with client_for(config) as client:
+        with pytest.raises(ToolError, match="exactly one of 'user_id' and 'username'"):
+            await client.call_tool("glpi_get_user", args)
+    assert glpi.api_requests() == []
+
+
+async def test_get_user_reports_an_unknown_login(config, client_for, glpi):
+    glpi.get("Administration/User", payload=[])
+    async with client_for(config) as client:
+        with pytest.raises(ToolError, match=r"No user with login 'j\.doe'"):
+            await client.call_tool("glpi_get_user", {"username": "j.doe"})
+
+
+async def test_search_groups_and_entities_match_the_name(config, client_for, glpi):
+    glpi.get("Administration/Group", payload=[{"id": 5, "name": "Helpdesk"}])
+    glpi.get("Administration/Entity", payload=[{"id": 1, "name": "Paris"}])
+    async with client_for(config) as client:
+        groups = await client.call_tool(
+            "glpi_search_groups", {"text": "help", "sort": "name:asc"}
+        )
+        entities = await client.call_tool(
+            "glpi_search_entities", {"text": "par", "start": 10}
+        )
+    [group_request] = glpi.sent("GET", "Administration/Group")
+    assert group_request.param("filter") == (
+        "name=ilike=*help*,completename=ilike=*help*"
+    )
+    assert group_request.param("sort") == "name:asc"
+    assert groups.data["results"] == [{"id": 5, "name": "Helpdesk"}]
+    [entity_request] = glpi.sent("GET", "Administration/Entity")
+    assert entity_request.param("filter") == (
+        "name=ilike=*par*,completename=ilike=*par*"
+    )
+    assert entity_request.param("start") == "10"
+    assert entity_request.param("limit") == "50"
+    assert entities.data["start"] == 10
+
+
+async def test_get_group_entity_and_list_profiles(config, client_for, glpi):
+    glpi.get("Administration/Group/5", payload={"id": 5, "comment": "<b>L1</b>"})
+    glpi.get("Administration/Entity/0", payload={"id": 0, "name": "Root"})
+    glpi.get("Administration/Profile", payload=[{"id": 4, "name": "Super-Admin"}])
+    async with client_for(config) as client:
+        group = await client.call_tool("glpi_get_group", {"group_id": 5})
+        entity = await client.call_tool("glpi_get_entity", {"entity_id": 0})
+        profiles = await client.call_tool("glpi_list_profiles", {"limit": 5})
+    assert group.data == {"id": 5, "comment": "L1"}
+    assert entity.data == {"id": 0, "name": "Root"}
+    assert profiles.data["results"] == [{"id": 4, "name": "Super-Admin"}]
+    [request] = glpi.sent("GET", "Administration/Profile")
+    assert request.param("filter") is None
+    assert request.param("limit") == "5"
+
+
+# ------------------------------------------------------------ assets
+
+
+async def test_search_assets_of_one_type(config, client_for, glpi):
+    glpi.get("Assets/Printer", payload=[{"id": 1, "name": "hp"}])
+    async with client_for(config) as client:
+        await client.call_tool(
+            "glpi_search_assets",
+            {
+                "asset_type": "Printer",
+                "name": "h*p",
+                "otherserial": "INV-1",
+                "entity_id": 0,
+                "filter": "states.id==2",
+            },
+        )
+    [request] = glpi.sent("GET", "Assets/Printer")
+    assert request.param("filter") == (
+        "name=ilike=*hp*;otherserial==INV-1;entity.id==0;states.id==2"
+    )
+
+
+async def test_get_asset_reports_infocom_errors_other_than_404(
+    config, client_for, glpi
+):
+    glpi.get("Assets/Computer/3", payload={"id": 3})
+    glpi.get("Assets/Computer/3/Infocom", status=403, payload={"status": "ERROR"})
+    async with client_for(config) as client:
+        with pytest.raises(
+            ToolError, match=r"^Error getting Computer 3: HTTP 403 .*Infocom"
+        ):
+            await client.call_tool(
+                "glpi_get_asset",
+                {"asset_type": "Computer", "asset_id": 3, "include_infocom": True},
+            )
+
+
+async def test_asset_writes(config, client_for, glpi):
+    glpi.post("Assets/Monitor", status=201, payload={"id": 9})
+    glpi.patch("Assets/Monitor/9", payload={"id": 9})
+    glpi.delete("Assets/Monitor/9", status=204)
+    async with client_for(config) as client:
+        created = await client.call_tool(
+            "glpi_create_asset", {"asset_type": "Monitor", "payload": {"name": "m"}}
+        )
+        await client.call_tool(
+            "glpi_update_asset",
+            {"asset_type": "Monitor", "asset_id": 9, "changes": {"location": 4}},
+        )
+        deleted = await client.call_tool(
+            "glpi_delete_asset", {"asset_type": "Monitor", "asset_id": 9}
+        )
+    assert created.data == {"created": True, "endpoint": "Assets/Monitor", "id": 9}
+    assert glpi.sent("POST", "Assets/Monitor")[0].body == {"name": "m"}
+    assert glpi.sent("PATCH", "Assets/Monitor/9")[0].body == {"location": 4}
+    assert glpi.sent("DELETE", "Assets/Monitor/9")[0].param("force") is None
+    assert deleted.data == {
+        "deleted": True,
+        "purged": False,
+        "endpoint": "Assets/Monitor/9",
+    }
+
+
+# ------------------------------------------------------------ documents
+
+
+async def test_search_and_get_documents(config, client_for, glpi):
+    glpi.get("Management/Document", payload=[{"id": 7, "name": "invoice"}])
+    glpi.get(
+        "Management/Document/7", payload={"id": 7, "comment": "&lt;p&gt;Q1&lt;/p&gt;"}
+    )
+    async with client_for(config) as client:
+        found = await client.call_tool(
+            "glpi_search_documents", {"text": "inv", "filters": {"is_deleted": False}}
+        )
+        document = await client.call_tool("glpi_get_document", {"document_id": 7})
+    [request] = glpi.sent("GET", "Management/Document")
+    assert request.param("filter") == (
+        "(name=ilike=*inv*,filename=ilike=*inv*);is_deleted==0"
+    )
+    assert found.data["results"] == [{"id": 7, "name": "invoice"}]
+    # Entity-encoded HTML, as older GLPI versions stored it, is decoded too.
+    assert document.data == {"id": 7, "comment": "Q1"}
+
+
+async def test_download_text_that_is_not_utf8_is_base64(config, client_for, glpi):
+    glpi.get(
+        "Management/Document/1/Download",
+        content=b"na\xefve",
+        headers={"Content-Type": "text/plain"},
+    )
+    async with client_for(config) as client:
+        result = await client.call_tool("glpi_download_document", {"document_id": 1})
+    assert "text" not in result.data
+    assert base64.b64decode(result.data["base64"]) == b"na\xefve"
+    assert result.data["size"] == 5
+
+
+# ------------------------------------------------------------ generic
+
+
+async def test_describe_schema_summarizes_nested_properties(config, client_for, glpi):
+    doc = {
+        "components": {
+            "schemas": {
+                "Computer": {
+                    "type": "object",
+                    "description": "  A computer.  ",
+                    "x-table": "glpi_computers",
+                    "properties": {
+                        "user": {"$ref": "#/components/schemas/User"},
+                        "tags": {"type": "array", "items": {"type": "string"}},
+                        "odd": True,
+                        "location": {
+                            "type": "object",
+                            "properties": {
+                                "address": {
+                                    "type": "object",
+                                    "properties": {"street": {}, "city": {}},
+                                }
+                            },
+                        },
+                    },
+                }
+            }
+        }
+    }
+    glpi.get("doc.json", payload=doc)
+    async with client_for(config) as client:
+        result = await client.call_tool("glpi_describe_schema", {"name": "computer"})
+        with pytest.raises(
+            ToolError, match=r"No schema named 'puter'\. Similar: Computer"
+        ):
+            await client.call_tool("glpi_describe_schema", {"name": "puter"})
+    assert result.data == {
+        "name": "Computer",
+        "schema": {
+            "type": "object",
+            "description": "A computer.",
+            "properties": {
+                "user": {"$ref": "User"},
+                "tags": {"type": "array", "items": {"type": "string"}},
+                "odd": True,
+                "location": {
+                    "type": "object",
+                    # Deeper levels only list property names.
+                    "properties": {
+                        "address": {"type": "object", "properties": ["city", "street"]}
+                    },
+                },
+            },
+        },
+    }
+
+
+async def test_list_endpoints_skips_paths_without_operations(config, client_for, glpi):
+    doc = {
+        "paths": {
+            "/Assets/Computer": {"parameters": [], "get": {"summary": " " + "x" * 200}},
+            "/Assets/Monitor": {"parameters": []},
+            "/Assets/Broken": "not an object",
+        }
+    }
+    glpi.get("doc.json", payload=doc)
+    async with client_for(config) as client:
+        result = await client.call_tool("glpi_list_endpoints", {})
+    assert result.data == {
+        "count": 1,
+        "endpoints": [
+            {"path": "Assets/Computer", "methods": ["GET"], "summary": "x" * 160}
+        ],
+    }
+
+
+async def test_get_item_by_path_and_id(config, client_for, glpi):
+    glpi.get("Management/Contract/2", payload={"id": 2, "comment": "<p>Renew</p>"})
+    glpi.get("Assistance/Ticket/5/TeamMember", payload=[{"id": 2, "type": "User"}])
+    async with client_for(config) as client:
+        text = await client.call_tool(
+            "glpi_get_item", {"path": "Management/Contract", "item_id": 2}
+        )
+        raw = await client.call_tool(
+            "glpi_get_item",
+            {"path": "Management/Contract", "item_id": 2, "raw_html": True},
+        )
+        team = await client.call_tool(
+            "glpi_get_item", {"path": "Assistance/Ticket/5/TeamMember"}
+        )
+    assert text.data == {"id": 2, "comment": "Renew"}
+    assert raw.data == {"id": 2, "comment": "<p>Renew</p>"}
+    # A list answer has no structured output; it arrives as JSON text.
+    assert json.loads(team.content[0].text) == [{"id": 2, "type": "User"}]
+
+
+async def test_list_items_passes_non_object_rows_through(config, client_for, glpi):
+    glpi.get("Dropdowns/Location", payload=[3, {"id": 4, "name": "HQ"}])
+    async with client_for(config) as client:
+        result = await client.call_tool(
+            "glpi_list_items", {"path": "Dropdowns/Location", "fields": ["id"]}
+        )
+    assert result.data["results"] == [3, {"id": 4}]
+
+
+# ------------------------------------------------------------ ITIL
+
+
+async def test_search_itil_filters_by_status_priority_category_and_dates(
+    config, client_for, glpi
+):
+    glpi.get("Assistance/Change", payload=[])
+    async with client_for(config) as client:
+        await client.call_tool(
+            "glpi_search_itil",
+            {
+                "itil_type": "Change",
+                "status": [1, 9],
+                "priority": [5, 6],
+                "category_id": 3,
+                "opened_after": "2026-01-01",
+                "opened_before": "2026-02-01",
+            },
+        )
+    [request] = glpi.sent("GET", "Assistance/Change")
+    assert request.param("filter") == (
+        "status.id=in=(1,9);priority=in=(5,6);category.id==3;"
+        "date=ge=2026-01-01;date=le=2026-02-01"
+    )
+
+
+async def test_create_itil_ticket_type_only_for_tickets(config, client_for, glpi):
+    async with client_for(config) as client:
+        with pytest.raises(ToolError, match=r"^Error creating change: .*tickets only"):
+            await client.call_tool(
+                "glpi_create_itil",
+                {"name": "t", "content": "c", "itil_type": "Change", "ticket_type": 1},
+            )
+    assert glpi.api_requests() == []
+
+
+async def test_update_itil_needs_a_change(config, client_for, glpi):
+    async with client_for(config) as client:
+        with pytest.raises(ToolError, match="at least one property"):
+            await client.call_tool("glpi_update_itil", {"item_id": 1, "changes": {}})
+    assert glpi.api_requests() == []
+
+
+@pytest.mark.parametrize(
+    ("role", "path"),
+    [
+        (None, "Assistance/Problem/4/TeamMember"),
+        ("assigned", "Assistance/Problem/4/TeamMember/assigned"),
+    ],
+)
+async def test_list_itil_team(config, client_for, glpi, role, path):
+    members = [{"type": "User", "id": 2, "role": "assigned"}]
+    glpi.get(path, payload=members)
+    args = {"item_id": 4, "itil_type": "Problem"}
+    if role:
+        args["role"] = role
+    async with client_for(config) as client:
+        result = await client.call_tool("glpi_list_itil_team", args)
+    assert result.data == {"team": members}
+    assert len(glpi.sent("GET", path)) == 1
+
+
+# ------------------------------------------------------------ knowledge base
+
+
+async def test_search_kb_articles(config, client_for, glpi):
+    glpi.get(
+        "Knowledgebase/Article",
+        payload=[{"id": 1, "name": "VPN", "answer": "<p>long</p>", "is_faq": True}],
+    )
+    async with client_for(config) as client:
+        result = await client.call_tool(
+            "glpi_search_kb_articles",
+            {"text": "vpn", "faq_only": True, "filter": "date_mod=ge=2026-01-01"},
+        )
+    [request] = glpi.sent("GET", "Knowledgebase/Article")
+    assert request.param("filter") == (
+        "(name=ilike=*vpn*,content=ilike=*vpn*);is_faq==1;date_mod=ge=2026-01-01"
+    )
+    assert result.data["results"] == [{"id": 1, "name": "VPN", "is_faq": True}]
+
+
+async def test_get_kb_article_as_text_or_html(config, client_for, glpi):
+    glpi.get("Knowledgebase/Article/6", payload={"id": 6, "answer": "<p>Steps</p>"})
+    async with client_for(config) as client:
+        text = await client.call_tool("glpi_get_kb_article", {"article_id": 6})
+        raw = await client.call_tool(
+            "glpi_get_kb_article", {"article_id": 6, "raw_html": True}
+        )
+    assert text.data == {"id": 6, "answer": "Steps"}
+    assert raw.data == {"id": 6, "answer": "<p>Steps</p>"}
+
+
+async def test_kb_create_in_an_entity(config, client_for, glpi):
+    glpi.post("Knowledgebase/Article", status=201, payload={"id": 4})
+    async with client_for(config) as client:
+        await client.call_tool(
+            "glpi_create_kb_article",
+            {"name": "VPN", "content": "Steps", "is_faq": True, "entity_id": 0},
+        )
+    assert glpi.sent("POST", "Knowledgebase/Article")[0].body == {
+        "name": "VPN",
+        "content": "Steps",
+        "is_faq": True,
+        "entity": 0,
+    }
+
+
+async def test_list_kb_categories_on_2_3(config, client_for, glpi):
+    glpi.get(
+        "Knowledgebase/Category",
+        payload=[{"id": 2, "name": "Network", "comment": "<p>LAN</p>"}],
+    )
+    async with client_for(config) as client:
+        result = await client.call_tool("glpi_list_kb_categories", {"limit": 10})
+    [request] = glpi.sent("GET", "Knowledgebase/Category")
+    assert request.param("limit") == "10"
+    assert result.data["endpoint"] == "Knowledgebase/Category"
+    assert result.data["results"] == [{"id": 2, "name": "Network", "comment": "LAN"}]
+    assert "note" not in result.data
+
+
+@pytest.mark.parametrize("value", [None, 5, "Plain text, no markup", ""])
+def test_html_to_text_passes_values_without_markup_through(value):
+    assert html_to_text(value) == value

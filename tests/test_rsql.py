@@ -64,3 +64,18 @@ def test_combine_keeps_or_groups():
     assert combine([None, ""]) is None
     # Commas inside =in=(...) or a quoted value are not OR.
     assert combine(["id=in=(1,2)", 'name=="a,b"']) == 'id=in=(1,2);name=="a,b"'
+
+
+@pytest.mark.parametrize(
+    ("part", "grouped"),
+    [
+        # An escaped quote does not end the quoted value, so its comma is not OR.
+        ('name=="say \\"hi, there\\""', False),
+        ("name=='it\\'s, fine'", False),
+        # An escaped backslash does end it: the comma after it is an OR.
+        ('name=="a\\\\",id==2', True),
+    ],
+)
+def test_combine_reads_escapes_in_quoted_values(part, grouped):
+    expected = f"({part})" if grouped else part
+    assert combine(["a==1", part]) == f"a==1;{expected}"

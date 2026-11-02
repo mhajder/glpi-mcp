@@ -1,4 +1,5 @@
 import asyncio
+from unittest.mock import MagicMock
 
 import httpx2
 import pytest
@@ -8,6 +9,7 @@ from fastmcp.server.auth.auth import AccessToken
 from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 from fastmcp.utilities.tests import asgi_client
 from fastmcp.utilities.tests import asgi_server
+from starlette.authentication import AuthenticationError
 
 from glpi_mcp import glpi_client
 from glpi_mcp.auth import GlpiTokenVerifier
@@ -15,6 +17,8 @@ from glpi_mcp.auth import GlpiUnavailableError
 from glpi_mcp.auth import auth_error_response
 from glpi_mcp.auth import build_auth_provider
 from glpi_mcp.auth import glpi_oauth_proxy_class
+from glpi_mcp.auth import install_unavailable_handler
+from glpi_mcp.auth import rate_limit_client_id
 from glpi_mcp.models import GlpiConfig
 from glpi_mcp.models import TransportConfig
 from glpi_mcp.tools import register_tools
@@ -419,3 +423,110 @@ def test_real_login_proxy_installs_the_503_handler(login_config, tmp_path, monke
     handlers = [m.kwargs.get("on_error") for m in middleware if "on_error" in m.kwargs]
     assert handlers == [auth_error_response]
     assert type(provider).__mro__[1].__name__ == "OAuthProxy"
+
+
+# ------------------------------------------------------------ error answers
+
+
+def test_handler_install_refuses_unknown_middleware():
+    """A FastMCP without Starlette's auth middleware must fail loudly."""
+    with pytest.raises(RuntimeError, match="auth middleware changed"):
+        install_unavailable_handler([])
+
+
+@pytest.mark.parametrize(
+    ("retry_after", "expected"),
+    [(None, "5"), (0.2, "1"), (7.5, "8"), (99999, "3600")],
+)
+def test_unavailable_answer_passes_on_a_bounded_retry_after(retry_after, expected):
+    response = auth_error_response(
+        MagicMock(), GlpiUnavailableError("GLPI is down", retry_after=retry_after)
+    )
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == expected
+    # The internal reason stays in the server log.
+    assert b"GLPI is down" not in response.body
+
+
+def test_other_auth_errors_keep_starlettes_answer():
+    response = auth_error_response(MagicMock(), AuthenticationError("bad header"))
+    assert response.status_code == 400
+    assert response.body == b"bad header"
+    assert "Retry-After" not in response.headers
+
+
+# ------------------------------------------------------------ verifier cache
+
+
+async def test_stale_token_is_answered_at_once_and_rechecked(passthrough_config, glpi):
+    glpi.get("session", payload=SESSION)
+    glpi.get("session", status=401, payload={"status": "ERROR"})
+    verifier = GlpiTokenVerifier(
+        passthrough_config, transport=glpi.transport, ttl=0, stale_ttl=600
+    )
+    assert await verifier.verify_token(USER_TOKEN) is not None
+
+    # Stale: still accepted, while GLPI is asked again in the background.
+    assert await verifier.verify_token(USER_TOKEN) is not None
+    await asyncio.gather(*verifier._pending.values())
+    assert len(glpi.sent("GET", "session")) == 2
+
+    # The re-check found the token revoked, so it is no longer accepted.
+    assert await verifier.verify_token(USER_TOKEN) is None
+    assert len(glpi.sent("GET", "session")) == 2
+
+
+async def test_expired_rejections_are_pruned(passthrough_config, glpi):
+    glpi.get("session", status=401, payload={"status": "ERROR"})
+    verifier = GlpiTokenVerifier(
+        passthrough_config, transport=glpi.transport, reject_ttl=0
+    )
+    for token in ("first-token", "second-token", "first-token"):
+        assert await verifier.verify_token(token) is None
+    # With no reject TTL, every check reaches GLPI and old entries do not pile up.
+    assert len(glpi.sent("GET", "session")) == 3
+    assert len(verifier._rejected) == 1
+
+
+async def test_unusable_cached_tokens_are_dropped(passthrough_config, glpi):
+    """A cached entry holds a plaintext token; it must not outlive stale_ttl."""
+    glpi.get("session", payload=SESSION)
+    verifier = GlpiTokenVerifier(
+        passthrough_config, transport=glpi.transport, ttl=0, stale_ttl=0
+    )
+    await verifier.verify_token("first-token")
+    await verifier.verify_token("second-token")
+    cached = [entry[0].token for entry in verifier._cache.values()]
+    assert cached == ["second-token"]
+
+
+async def test_verifier_reports_an_unreachable_glpi_as_unavailable(
+    passthrough_config, caplog
+):
+    def refuse(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ConnectError("connection refused", request=request)
+
+    verifier = GlpiTokenVerifier(
+        passthrough_config, transport=httpx2.MockTransport(refuse)
+    )
+    with pytest.raises(GlpiUnavailableError, match=r"\(ConnectError\); retry later"):
+        await verifier.verify_token(USER_TOKEN)
+    assert "GLPI token verification failed: ConnectError" in caplog.text
+
+
+# ------------------------------------------------------------ rate limiting
+
+
+@pytest.mark.parametrize(
+    ("access_token", "expected"),
+    [
+        (None, "global"),
+        (AccessToken(token="", client_id="user:7", scopes=[]), "global"),
+        (AccessToken(token=USER_TOKEN, client_id="user:7", scopes=[]), "user:7"),
+    ],
+)
+def test_rate_limit_is_keyed_by_the_authenticated_user(
+    monkeypatch, access_token, expected
+):
+    monkeypatch.setattr("glpi_mcp.auth.get_access_token", lambda: access_token)
+    assert rate_limit_client_id(object()) == expected

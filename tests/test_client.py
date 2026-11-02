@@ -1,4 +1,5 @@
 import asyncio
+from typing import Any
 
 import httpx2
 import pytest
@@ -9,6 +10,7 @@ from glpi_mcp.glpi_client import GlpiClient
 from glpi_mcp.glpi_client import GlpiVersionError
 from glpi_mcp.glpi_client import MissingTokenError
 from glpi_mcp.glpi_client import ResponseTooLargeError
+from glpi_mcp.glpi_client import bounded_put
 from glpi_mcp.glpi_client import parse_content_range
 from glpi_mcp.glpi_client import parse_filename
 from glpi_mcp.glpi_client import pick_api_version
@@ -521,3 +523,254 @@ async def test_timeout_renewing_a_refused_token_is_not_ambiguous(config, glpi):
         with pytest.raises(TimeoutError):
             await client.post("Assistance/Ticket", json={"name": "x"})
     assert len(grants) == 2
+
+
+# ------------------------------------------------- helpers and edge answers
+
+
+def test_bounded_put_drops_the_oldest_entries():
+    cache = {"a": 1, "b": 2}
+    bounded_put(cache, "a", 3, limit=2)
+    assert list(cache.items()) == [("b", 2), ("a", 3)]
+    bounded_put(cache, "c", 4, limit=2)
+    assert list(cache.items()) == [("a", 3), ("c", 4)]
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ({"status": "ERROR_ITEM_NOT_FOUND"}, "ERROR_ITEM_NOT_FOUND"),
+        ({"error": "invalid_grant"}, "invalid_grant"),
+        ({"title": "no code"}, None),
+        ("<html>Bad Gateway</html>", None),
+        (None, None),
+    ],
+)
+def test_error_code(body, expected):
+    assert GlpiAPIError(502, "GET", "session", body).error_code == expected
+
+
+def test_parse_filename_with_an_unknown_charset_still_decodes():
+    assert parse_filename("attachment; filename*=x-nope''a%20b.pdf") == "a b.pdf"
+
+
+def test_pick_api_version_skips_malformed_entries():
+    # GLPI answers with JSON, so the list may hold anything.
+    offered: list[Any] = ["2.3.0", None, {"version": "garbage"}, {"version": "2.3.1"}]
+    assert pick_api_version(offered, "auto") == "2.3"
+
+
+async def test_empty_explicit_token_is_refused(config, glpi):
+    with pytest.raises(MissingTokenError, match="empty GLPI token"):
+        async with GlpiClient(config, token="", transport=glpi.transport):
+            pass
+    assert glpi.requests == []
+
+
+async def test_password_grant_needs_the_credentials(config, glpi):
+    incomplete = config.model_copy(update={"password": None})
+    async with GlpiClient(incomplete, transport=glpi.transport) as client:
+        with pytest.raises(MissingTokenError, match="not configured: GLPI_PASSWORD"):
+            await client.get("session")
+    assert glpi.sent("POST", "/api.php/token") == []
+    assert glpi.sent("GET", "session") == []
+
+
+async def test_password_grant_without_access_token_is_an_error(config, glpi):
+    glpi.routes[("POST", "/api.php/token")].clear()
+    glpi.post("/api.php/token", payload={"token_type": "Bearer"})
+    async with GlpiClient(config, transport=glpi.transport) as client:
+        with pytest.raises(GlpiAPIError, match="No access_token in response"):
+            await client.get("session")
+    assert glpi.sent("GET", "session") == []
+
+
+async def test_concurrent_calls_wait_for_the_token_being_fetched(config, glpi):
+    """Calls queued behind a slow grant reuse its token instead of asking again."""
+    glpi.get("session", payload={})
+    transport = slow_glpi(glpi, {"/token": 0.05})
+
+    async def call():
+        async with GlpiClient(config, transport=transport) as client:
+            await client.get("session")
+
+    await asyncio.gather(*(call() for _ in range(3)))
+    assert len(glpi.sent("POST", "/api.php/token")) == 1
+    assert len(glpi.sent("GET", "session")) == 3
+
+
+async def test_non_json_body_is_returned_as_truncated_text(config, glpi):
+    glpi.get("session", content=b"x" * 3000, headers={"Content-Type": "text/html"})
+    async with GlpiClient(config, transport=glpi.transport) as client:
+        assert await client.get("session") == "x" * 2000
+
+
+async def test_patch_sends_the_json_body(config, glpi):
+    glpi.patch("Assets/Computer/3", payload={"id": 3})
+    async with GlpiClient(config, transport=glpi.transport) as client:
+        assert await client.patch("Assets/Computer/3", json={"name": "pc"}) == {"id": 3}
+    [request] = glpi.sent("PATCH", "Assets/Computer/3")
+    assert request.body == {"name": "pc"}
+
+
+async def test_client_outside_its_context_is_refused(config, glpi):
+    client = GlpiClient(config, transport=glpi.transport)
+    with pytest.raises(RuntimeError, match="async context manager"):
+        await client.get("session")
+    with pytest.raises(RuntimeError, match="async context manager"):
+        await client.api_versions()
+    assert glpi.requests == []
+
+
+# ------------------------------------------------- transport failures
+
+
+async def test_write_that_never_connected_is_not_ambiguous(config):
+    """A connect error means nothing reached GLPI, so a retry is safe."""
+    glpi = FakeGlpi()
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path.endswith("/Assistance/Ticket"):
+            raise httpx2.ConnectError("connection refused", request=request)
+        return glpi.handle(request)
+
+    async with GlpiClient(config, transport=httpx2.MockTransport(handler)) as client:
+        with pytest.raises(httpx2.ConnectError):
+            await client.post("Assistance/Ticket", json={"name": "x"})
+
+
+async def test_version_lookup_timeout_names_the_step(config, glpi):
+    transport = slow_glpi(glpi, {"/api.php/": 1})
+    quick = config.model_copy(update={"timeout": 0.1})
+    async with GlpiClient(quick, transport=transport) as client:
+        with pytest.raises(TimeoutError, match=r"list its API versions within 0\.1s"):
+            await client.api_version()
+
+
+async def test_version_lookup_error_is_reported(config):
+    glpi = FakeGlpi()
+    glpi.routes[("GET", "/api.php/")] = [(403, {"status": "ERROR_FORBIDDEN"}, {})]
+    async with GlpiClient(config, transport=glpi.transport) as client:
+        with pytest.raises(GlpiAPIError) as info:
+            await client.get("session")
+    assert info.value.status == 403
+    assert info.value.path == "/"
+    assert info.value.error_code == "ERROR_FORBIDDEN"
+
+
+async def test_openapi_must_be_an_object(config, glpi):
+    glpi.get("doc.json", payload=["not", "a", "document"])
+    async with GlpiClient(config, transport=glpi.transport) as client:
+        with pytest.raises(GlpiAPIError, match="Not an OpenAPI document"):
+            await client.openapi()
+
+
+# ------------------------------------------------- bounded downloads
+
+
+async def test_download_error_keeps_the_body(config, glpi):
+    glpi.get(
+        "Management/Document/5/Download",
+        status=404,
+        payload={"status": "ERROR_ITEM_NOT_FOUND"},
+    )
+    async with GlpiClient(config, transport=glpi.transport) as client:
+        with pytest.raises(GlpiAPIError) as info:
+            await client.download("Management/Document/5/Download", max_bytes=10)
+    assert info.value.status == 404
+    assert info.value.error_code == "ERROR_ITEM_NOT_FOUND"
+
+
+async def test_download_without_length_is_cut_off_at_max_bytes(config):
+    """A chunked body has no Content-Length, so the size is counted as it streams."""
+    glpi = FakeGlpi()
+    chunks_sent = []
+
+    async def body():
+        for _ in range(100):
+            chunks_sent.append(True)
+            yield b"x" * 4
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path.endswith("/Download"):
+            return httpx2.Response(200, content=body())
+        return glpi.handle(request)
+
+    async with GlpiClient(config, transport=httpx2.MockTransport(handler)) as client:
+        with pytest.raises(ResponseTooLargeError, match="more bytes than that"):
+            await client.download("Management/Document/5/Download", max_bytes=10)
+    assert len(chunks_sent) < 100
+
+
+async def test_download_within_max_bytes_is_returned(config):
+    glpi = FakeGlpi()
+
+    async def body():
+        yield b"he"
+        yield b"llo"
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path.endswith("/Download"):
+            return httpx2.Response(
+                200, content=body(), headers={"Content-Type": "text/plain"}
+            )
+        return glpi.handle(request)
+
+    async with GlpiClient(config, transport=httpx2.MockTransport(handler)) as client:
+        download = await client.download("Management/Document/5/Download", max_bytes=10)
+    assert download.content == b"hello"
+    assert download.content_type == "text/plain"
+
+
+# ------------------------------------------------- redirects
+
+
+def redirecting_glpi(glpi: FakeGlpi, statuses: dict[str, int]) -> httpx2.MockTransport:
+    """Send http:// requests to https://, with the given status per path suffix.
+
+    Paths without a listed suffix get a 308, which keeps the method.
+    """
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.url.scheme == "http":
+            status = next(
+                (
+                    s
+                    for suffix, s in statuses.items()
+                    if request.url.path.endswith(suffix)
+                ),
+                308,
+            )
+            target = request.url.copy_with(scheme="https")
+            return httpx2.Response(status, headers={"Location": str(target)})
+        return glpi.handle(request)
+
+    return httpx2.MockTransport(handler)
+
+
+async def test_redirect_that_keeps_the_method_works_and_warns_once(
+    config, glpi, caplog
+):
+    glpi.get("session", payload={"user_id": 2})
+    plain = config.model_copy(update={"glpi_url": "http://glpi.test"})
+    transport = redirecting_glpi(glpi, {})
+    async with GlpiClient(plain, transport=transport) as client:
+        assert await client.get("session") == {"user_id": 2}
+        assert await client.get("session") == {"user_id": 2}
+    # The token grant went through the redirect as a POST.
+    [grant] = glpi.sent("POST", "/api.php/token")
+    assert grant.body["grant_type"] == "password"
+    warnings = [r for r in caplog.records if "GLPI redirects" in r.getMessage()]
+    assert len(warnings) == 1
+    assert "http://glpi.test/api.php/token to https://glpi.test/api.php/token" in (
+        warnings[0].getMessage()
+    )
+
+
+async def test_write_turned_into_a_get_by_a_redirect_is_refused(config, glpi):
+    plain = config.model_copy(update={"glpi_url": "http://glpi.test"})
+    transport = redirecting_glpi(glpi, {"/Assistance/Ticket": 301})
+    async with GlpiClient(plain, transport=transport) as client:
+        with pytest.raises(ValueError, match=r"turned into a GET.*NOT applied"):
+            await client.post("Assistance/Ticket", json={"name": "x"})
+    assert glpi.sent("POST", "Assistance/Ticket") == []
