@@ -64,7 +64,7 @@ def init_sentry() -> bool:
             from importlib.metadata import version
 
             try:
-                release = version("glpi-mcp")
+                release = version("glpi-mcp-server")
             except PackageNotFoundError:
                 release = None
 

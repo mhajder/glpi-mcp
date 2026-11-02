@@ -63,7 +63,7 @@ if _resolved_log_level is None:
 
 # Get package version
 try:
-    __version__ = version("glpi-mcp")
+    __version__ = version("glpi-mcp-server")
 except PackageNotFoundError:
     __version__ = "0.0.1"
 
