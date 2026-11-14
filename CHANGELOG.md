@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.2](https://github.com/mhajder/glpi-mcp/compare/v0.1.1...v0.1.2) (2026-11-14)
+
+
+### 📦 Build
+
+* **deps:** bump dnspython from 2.9.0 to 2.9.2 ([#16](https://github.com/mhajder/glpi-mcp/issues/16)) ([2082d43](https://github.com/mhajder/glpi-mcp/commit/2082d43cd8d7889a010f4b47e4f7d9b08be0682b))
+* **deps:** bump docker/login-action ([#9](https://github.com/mhajder/glpi-mcp/issues/9)) ([493bd07](https://github.com/mhajder/glpi-mcp/commit/493bd0733f67c14f1905285dc4bce312bf879de8))
+* **deps:** bump opentelemetry-api from 1.45.1 to 1.45.2 ([#15](https://github.com/mhajder/glpi-mcp/issues/15)) ([f42a675](https://github.com/mhajder/glpi-mcp/commit/f42a6751963d5bcd803a1bff3bb25d4dd420e492))
+
 ## [0.1.1](https://github.com/mhajder/glpi-mcp/compare/v0.1.0...v0.1.1) (2026-11-07)
 
 
