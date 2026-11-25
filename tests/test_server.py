@@ -46,7 +46,7 @@ def load_server(monkeypatch, tmp_path):
     # The GLPI login's OAuthProxy keeps its client store under the home dir.
     monkeypatch.setattr("fastmcp.settings.home", tmp_path)
 
-    def factory(**env: str):
+    def factory(*, register_tools: bool = True, **env: str):
         env.setdefault("GLPI_URL", "https://glpi.test")
         env.setdefault("GLPI_CLIENT_ID", "client")
         env.setdefault("GLPI_CLIENT_SECRET", "secret")
@@ -55,7 +55,12 @@ def load_server(monkeypatch, tmp_path):
         for name, value in env.items():
             monkeypatch.setenv(name, value)
         sys.modules.pop(MODULE, None)
-        module = importlib.import_module(MODULE)
+        if register_tools:
+            module = importlib.import_module(MODULE)
+        else:
+            with monkeypatch.context() as m:
+                m.setattr("glpi_mcp.tools.register_tools", lambda *_a, **_kw: None)
+                module = importlib.import_module(MODULE)
         monkeypatch.setattr(module.mcp, "run", MagicMock())
         return module
 
@@ -84,7 +89,7 @@ async def tool_names(module) -> set[str]:
 
 
 async def test_health_route_answers_ok(load_server):
-    server = load_server()
+    server = load_server(register_tools=False)
 
     response = await server.health(MagicMock())
 
@@ -141,6 +146,7 @@ async def test_tool_search_replaces_the_tool_list(
 
 def test_rate_limiting_adds_middleware(load_server):
     server = load_server(
+        register_tools=False,
         RATE_LIMIT_ENABLED="true",
         RATE_LIMIT_MAX_REQUESTS="10",
         RATE_LIMIT_WINDOW_MINUTES="5",
@@ -157,7 +163,7 @@ def test_rate_limiting_adds_middleware(load_server):
 
 
 def test_optional_middleware_is_off_by_default(load_server):
-    server = load_server()
+    server = load_server(register_tools=False)
 
     assert not any(
         isinstance(m, SlidingWindowRateLimitingMiddleware | ResponseLimitingMiddleware)
@@ -167,7 +173,7 @@ def test_optional_middleware_is_off_by_default(load_server):
 
 def test_response_size_limit_adds_middleware(load_server, caplog):
     caplog.set_level(logging.INFO)
-    server = load_server(RESPONSE_MAX_SIZE="2048")
+    server = load_server(register_tools=False, RESPONSE_MAX_SIZE="2048")
 
     [limiter] = [
         m for m in server.mcp.middleware if isinstance(m, ResponseLimitingMiddleware)
@@ -177,13 +183,13 @@ def test_response_size_limit_adds_middleware(load_server, caplog):
 
 
 def test_unknown_log_level_falls_back_to_info(load_server, caplog):
-    load_server(LOG_LEVEL="chatty")
+    load_server(register_tools=False, LOG_LEVEL="chatty")
 
     assert "Unknown LOG_LEVEL 'CHATTY'" in caplog.text
 
 
 def test_lowercase_log_level_is_accepted(load_server, caplog):
-    load_server(LOG_LEVEL=" debug ")
+    load_server(register_tools=False, LOG_LEVEL=" debug ")
 
     assert "Unknown LOG_LEVEL" not in caplog.text
 
@@ -194,11 +200,13 @@ def test_version_falls_back_when_package_is_not_installed(load_server, monkeypat
 
     monkeypatch.setattr(importlib.metadata, "version", missing)
 
-    assert load_server().__version__ == "0.0.1"
+    assert load_server(register_tools=False).__version__ == "0.0.1"
 
 
 def test_version_is_the_installed_package_version(load_server):
-    assert load_server().__version__ == importlib.metadata.version("glpi-mcp-server")
+    assert load_server(register_tools=False).__version__ == importlib.metadata.version(
+        "glpi-mcp-server"
+    )
 
 
 @pytest.mark.parametrize(
@@ -215,7 +223,7 @@ def test_version_is_the_installed_package_version(load_server):
 )
 def test_invalid_configuration_is_logged_and_raised(load_server, caplog, env, message):
     with pytest.raises(ValueError, match=message):
-        load_server(**env)
+        load_server(register_tools=False, **env)
 
     assert "Invalid configuration" in caplog.text
 
@@ -235,7 +243,7 @@ def test_invalid_configuration_is_logged_and_raised(load_server, caplog, env, me
     ],
 )
 def test_instructions_describe_the_safety_mode(load_server, env, expected, absent):
-    instructions = load_server(**env).mcp.instructions
+    instructions = load_server(register_tools=False, **env).mcp.instructions
 
     assert instructions.startswith("This MCP server exposes tools for the GLPI")
     if expected:
@@ -248,21 +256,23 @@ def test_instructions_describe_the_safety_mode(load_server, env, expected, absen
 
 
 def test_no_authentication_by_default(load_server):
-    server = load_server()
+    server = load_server(register_tools=False)
 
     assert server.mcp.auth is None
     assert server.auth_label() is None
 
 
 def test_bearer_token_enables_auth(load_server):
-    server = load_server(MCP_HTTP_BEARER_TOKEN="secret")
+    server = load_server(register_tools=False, MCP_HTTP_BEARER_TOKEN="secret")
 
     assert isinstance(server.mcp.auth, StaticTokenVerifier)
     assert server.auth_label() == "bearer token"
 
 
 def test_token_passthrough_verifies_tokens_with_glpi(load_server):
-    server = load_server(MCP_TRANSPORT="http", GLPI_TOKEN_PASSTHROUGH="true")
+    server = load_server(
+        register_tools=False, MCP_TRANSPORT="http", GLPI_TOKEN_PASSTHROUGH="true"
+    )
 
     assert isinstance(server.mcp.auth, GlpiTokenVerifier)
     assert server.auth_label() == "per-user GLPI token passthrough"
@@ -270,6 +280,7 @@ def test_token_passthrough_verifies_tokens_with_glpi(load_server):
 
 def test_glpi_login_brokers_to_glpi(load_server):
     server = load_server(
+        register_tools=False,
         MCP_TRANSPORT="http",
         GLPI_OAUTH_LOGIN="true",
         GLPI_OAUTH_BASE_URL="https://mcp.example.com",
@@ -280,7 +291,7 @@ def test_glpi_login_brokers_to_glpi(load_server):
 
 
 def test_oidc_brokers_to_the_identity_provider(load_server, fake_oidc):
-    server = load_server(MCP_TRANSPORT="http", **OIDC_ENV)
+    server = load_server(register_tools=False, MCP_TRANSPORT="http", **OIDC_ENV)
 
     assert [call["config_url"] for call in fake_oidc] == [OIDC_ENV["OIDC_CONFIG_URL"]]
     assert server.auth_label() == "OIDC"
@@ -291,7 +302,7 @@ def test_oidc_brokers_to_the_identity_provider(load_server, fake_oidc):
 
 def test_main_runs_stdio_by_default(load_server, caplog):
     caplog.set_level(logging.INFO)
-    server = load_server()
+    server = load_server(register_tools=False)
 
     server.main()
 
@@ -314,7 +325,7 @@ def test_main_runs_stdio_by_default(load_server, caplog):
 )
 def test_main_logs_the_active_modes(load_server, caplog, env, modes):
     caplog.set_level(logging.INFO)
-    server = load_server(GLPI_API_VERSION="2.3", **env)
+    server = load_server(register_tools=False, GLPI_API_VERSION="2.3", **env)
 
     server.main()
 
@@ -334,6 +345,7 @@ def test_main_runs_http_transports_on_the_configured_address(
 ):
     caplog.set_level(logging.INFO)
     server = load_server(
+        register_tools=False,
         MCP_TRANSPORT=transport,
         MCP_HTTP_HOST="192.0.2.10",
         MCP_HTTP_PORT="9001",
@@ -353,7 +365,7 @@ def test_main_runs_http_transports_on_the_configured_address(
 @pytest.mark.parametrize("transport", ["http", "sse"])
 def test_main_warns_when_http_runs_without_auth(load_server, caplog, transport):
     caplog.set_level(logging.INFO)
-    server = load_server(MCP_TRANSPORT=transport)
+    server = load_server(register_tools=False, MCP_TRANSPORT=transport)
 
     server.main()
 
@@ -363,7 +375,7 @@ def test_main_warns_when_http_runs_without_auth(load_server, caplog, transport):
 
 
 def test_main_rejects_an_unknown_transport(load_server, caplog):
-    server = load_server(MCP_TRANSPORT="websocket")
+    server = load_server(register_tools=False, MCP_TRANSPORT="websocket")
 
     with pytest.raises(SystemExit) as exc:
         server.main()
@@ -390,7 +402,7 @@ def test_main_rejects_an_unknown_transport(load_server, caplog):
     ],
 )
 def test_main_stops_on_an_unusable_glpi_setup(load_server, caplog, env, message):
-    server = load_server(**env)
+    server = load_server(register_tools=False, **env)
 
     with pytest.raises(SystemExit) as exc:
         server.main()
@@ -401,7 +413,7 @@ def test_main_stops_on_an_unusable_glpi_setup(load_server, caplog, env, message)
 
 
 def test_main_warns_about_plaintext_http(load_server, caplog):
-    server = load_server(GLPI_URL="HTTP://glpi.example.com")
+    server = load_server(register_tools=False, GLPI_URL="HTTP://glpi.example.com")
 
     server.main()
 
@@ -410,7 +422,7 @@ def test_main_warns_about_plaintext_http(load_server, caplog):
 
 
 def test_main_accepts_https_without_a_plaintext_warning(load_server, caplog):
-    server = load_server()
+    server = load_server(register_tools=False)
 
     server.main()
 
@@ -421,7 +433,9 @@ def test_main_warns_that_server_credentials_are_unused_with_per_user_tokens(
     load_server, caplog
 ):
     caplog.set_level(logging.INFO)
-    server = load_server(MCP_TRANSPORT="http", GLPI_TOKEN_PASSTHROUGH="true")
+    server = load_server(
+        register_tools=False, MCP_TRANSPORT="http", GLPI_TOKEN_PASSTHROUGH="true"
+    )
 
     server.main()
 
@@ -435,6 +449,7 @@ def test_main_warns_that_server_credentials_are_unused_with_per_user_tokens(
 
 def test_main_per_user_tokens_need_no_server_credentials(load_server, caplog):
     server = load_server(
+        register_tools=False,
         MCP_TRANSPORT="http",
         GLPI_TOKEN_PASSTHROUGH="true",
         GLPI_CLIENT_ID="",

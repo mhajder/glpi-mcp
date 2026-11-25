@@ -407,11 +407,11 @@ async def test_retry_leaves_time_for_the_retried_request(config):
         nonlocal calls
         if request.url.path.endswith("/Assistance/Ticket"):
             calls += 1
-            await asyncio.sleep(0.6)
-            return httpx2.Response(429, headers={"Retry-After": "0.5"})
+            await asyncio.sleep(0.08)
+            return httpx2.Response(429, headers={"Retry-After": "0.08"})
         return FakeGlpi().handle(request)
 
-    short = config.model_copy(update={"timeout": 1.5})
+    short = config.model_copy(update={"timeout": 0.14})
     transport = httpx2.MockTransport(handler)
     async with GlpiClient(short, transport=transport) as client:
         with pytest.raises(GlpiAPIError) as info:
@@ -448,20 +448,20 @@ def slow_glpi(glpi: FakeGlpi, delays: dict[str, float]) -> httpx2.MockTransport:
 async def test_timeout_covers_version_lookup_token_and_request(config, glpi):
     """GLPI_TIMEOUT is the total for one request, not a budget per step."""
     glpi.get("session", payload={})
-    transport = slow_glpi(glpi, {"/api.php/": 0.3, "/token": 0.3, "/session": 0.3})
-    quick = config.model_copy(update={"timeout": 0.5})
+    transport = slow_glpi(glpi, {"/api.php/": 0.06, "/token": 0.06, "/session": 0.06})
+    quick = config.model_copy(update={"timeout": 0.1})
     loop = asyncio.get_running_loop()
     started = loop.time()
     async with GlpiClient(quick, transport=transport) as client:
-        with pytest.raises(TimeoutError, match=r"within 0\.5s"):
+        with pytest.raises(TimeoutError, match=r"within 0\.1s"):
             await client.get("session")
-    assert loop.time() - started < 0.8
+    assert loop.time() - started < 0.25
 
 
 async def test_write_timeout_before_sending_is_not_ambiguous(config, glpi):
     """A create that timed out while getting a token was never sent."""
-    transport = slow_glpi(glpi, {"/token": 1})
-    quick = config.model_copy(update={"timeout": 0.2})
+    transport = slow_glpi(glpi, {"/token": 0.2})
+    quick = config.model_copy(update={"timeout": 0.05})
     async with GlpiClient(quick, transport=transport) as client:
         with pytest.raises(TimeoutError):
             await client.post("Assistance/Ticket", json={"name": "x"})
@@ -470,8 +470,8 @@ async def test_write_timeout_before_sending_is_not_ambiguous(config, glpi):
 
 async def test_write_timeout_after_sending_is_ambiguous(config, glpi):
     glpi.post("Assistance/Ticket", status=201, payload={"id": 1})
-    transport = slow_glpi(glpi, {"/Assistance/Ticket": 1})
-    quick = config.model_copy(update={"timeout": 0.3})
+    transport = slow_glpi(glpi, {"/Assistance/Ticket": 0.2})
+    quick = config.model_copy(update={"timeout": 0.05})
     async with GlpiClient(quick, transport=transport) as client:
         with pytest.raises(AmbiguousWriteError, match="MAY have been applied"):
             await client.post("Assistance/Ticket", json={"name": "x"})
@@ -515,10 +515,10 @@ async def test_timeout_renewing_a_refused_token_is_not_ambiguous(config, glpi):
         if request.url.path.endswith("/token"):
             grants.append(True)
             if len(grants) > 1:
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.2)
         return glpi.handle(request)
 
-    quick = config.model_copy(update={"timeout": 0.3})
+    quick = config.model_copy(update={"timeout": 0.05})
     async with GlpiClient(quick, transport=httpx2.MockTransport(handler)) as client:
         with pytest.raises(TimeoutError):
             await client.post("Assistance/Ticket", json={"name": "x"})
