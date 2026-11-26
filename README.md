@@ -596,6 +596,7 @@ If `SENTRY_DSN` is not set, no monitoring data is collected.
 ```env
 GLPI_VERIFY_SSL=true    # Verify GLPI's certificate against the system trust store
 GLPI_TIMEOUT=30         # Total seconds for one request, retries included
+# GLPI_USER_AGENT=      # Optional User-Agent header (default: glpi-mcp-server/<version>)
 ```
 
 ### Transport Configuration

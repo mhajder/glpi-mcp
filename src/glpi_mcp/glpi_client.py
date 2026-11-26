@@ -8,6 +8,8 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version
 from typing import Any
 from typing import ClassVar
 from urllib.parse import unquote
@@ -33,6 +35,13 @@ from glpi_mcp.utils import http_port_from_env
 from glpi_mcp.utils import transport_from_env
 
 logger = logging.getLogger(__name__)
+
+try:
+    APP_VERSION = version("glpi-mcp-server")
+except PackageNotFoundError:
+    APP_VERSION = "0.0.1"
+
+DEFAULT_USER_AGENT = f"glpi-mcp-server/{APP_VERSION}"
 
 WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 # Failures raised before any byte of the request reached GLPI: always safe to
@@ -348,12 +357,19 @@ class GlpiClient:
                 headers["GLPI-Entity-Recursive"] = "true"
         return headers
 
+    def _user_agent(self) -> str:
+        return (self.config.user_agent or "").strip() or DEFAULT_USER_AGENT
+
     async def __aenter__(self) -> "GlpiClient":
         self._caller_token = self._resolve_caller_token()
         self._http = build_client(
             self.api_root,
             self.config.timeout,
-            {"Accept": "application/json", **self._scope_headers()},
+            {
+                "Accept": "application/json",
+                "User-Agent": self._user_agent(),
+                **self._scope_headers(),
+            },
             self._transport or shared_transport(self.config.verify_ssl),
             retry=self._retry,
         )
@@ -960,6 +976,7 @@ def get_glpi_config_from_env() -> GlpiConfig:
         profile_id=_optional_int("GLPI_PROFILE"),
         verify_ssl=env_bool("GLPI_VERIFY_SSL", default=True),
         timeout=env_float("GLPI_TIMEOUT", 30),
+        user_agent=env_str("GLPI_USER_AGENT"),
         read_only_mode=env_bool("READ_ONLY_MODE", default=False),
         dry_run_mode=env_bool("DRY_RUN_MODE", default=False),
         disabled_tags=disabled_tags,

@@ -74,6 +74,10 @@ class GlpiConfig(BaseModel):
         gt=0,
         description="Total time allowed for one request, retries included (seconds)",
     )
+    user_agent: str | None = Field(
+        None,
+        description="User-Agent header sent upstream (unset = glpi-mcp-server/<version>)",
+    )
     # Server behavior
     read_only_mode: bool = Field(False, description="Read-only mode (true/false)")
     dry_run_mode: bool = Field(

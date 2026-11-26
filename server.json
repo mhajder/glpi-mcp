@@ -97,6 +97,12 @@
           "isSecret": false
         },
         {
+          "name": "GLPI_USER_AGENT",
+          "description": "Custom User-Agent header for outbound GLPI HTTP requests",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
           "name": "READ_ONLY_MODE",
           "description": "Enable read-only mode to restrict write operations",
           "default": "false",
@@ -257,6 +263,12 @@
           "name": "GLPI_TIMEOUT",
           "description": "Total seconds allowed for one request, retries included",
           "default": "30",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_USER_AGENT",
+          "description": "Custom User-Agent header for outbound GLPI HTTP requests",
           "isRequired": false,
           "isSecret": false
         },
@@ -442,6 +454,12 @@
           "name": "GLPI_TIMEOUT",
           "description": "Total seconds allowed for one request, retries included",
           "default": "30",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "GLPI_USER_AGENT",
+          "description": "Custom User-Agent header for outbound GLPI HTTP requests",
           "isRequired": false,
           "isSecret": false
         },
