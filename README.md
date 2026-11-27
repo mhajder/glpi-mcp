@@ -580,13 +580,23 @@ SENTRY_DSN=https://your-key@o12345.ingest.us.sentry.io/6789
 
 # Optional settings
 SENTRY_TRACES_SAMPLE_RATE=1.0
-# When true, tool inputs and outputs (ticket contents, users...) are sent to Sentry.
+# When true, tool inputs and outputs (ticket contents, users...), HTTP bodies,
+# stack frame variables, user details, cookies and client IP headers are sent
+# to Sentry. Secret-looking names (password, token, key) stay filtered.
 SENTRY_SEND_DEFAULT_PII=false
 SENTRY_ENVIRONMENT=production
 SENTRY_RELEASE=1.2.3
-SENTRY_PROFILE_SESSION_SAMPLE_RATE=1.0
+# Continuous profiling sample rate (0.0-1.0, default: 0.0, profiling off).
+# Profiling adds CPU load and uses Sentry quota; set e.g. 1.0 to turn it on.
+SENTRY_PROFILE_SESSION_SAMPLE_RATE=0.0
+# "trace" (default: profile while a sampled span is active) or "manual" (only
+# between sentry_sdk.profiler.start_profiler() and stop_profiler())
 SENTRY_PROFILE_LIFECYCLE=trace
-SENTRY_ENABLE_LOGS=true
+# Send application logs to Sentry Logs (default: same as
+# SENTRY_SEND_DEFAULT_PII). Log lines can include GLPI request URLs with item
+# IDs and RSQL search filters. Logged errors are always captured as events, and
+# logs as breadcrumbs.
+SENTRY_ENABLE_LOGS=false
 ```
 
 If `SENTRY_DSN` is not set, no monitoring data is collected.
