@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.2.0](https://github.com/mhajder/glpi-mcp/compare/v0.1.1...v0.2.0) (2026-11-28)
+
+
+### 🚀 Features
+
+* **client:** make outbound User-Agent configurable ([0a33caa](https://github.com/mhajder/glpi-mcp/commit/0a33caae1732fe2181b9209b9d7b2ef8e2c91aa7))
+
+
+### 🐛 Bug Fixes
+
+* **deps:** support sentry-sdk 3 ([da43716](https://github.com/mhajder/glpi-mcp/commit/da437167fecca819e5c4603a942ecad94898e560))
+
+
+### 📦 Build
+
+* **deps:** bump dnspython from 2.9.0 to 2.9.2 ([#16](https://github.com/mhajder/glpi-mcp/issues/16)) ([2082d43](https://github.com/mhajder/glpi-mcp/commit/2082d43cd8d7889a010f4b47e4f7d9b08be0682b))
+* **deps:** bump docker/login-action ([#9](https://github.com/mhajder/glpi-mcp/issues/9)) ([493bd07](https://github.com/mhajder/glpi-mcp/commit/493bd0733f67c14f1905285dc4bce312bf879de8))
+* **deps:** bump opentelemetry-api from 1.45.1 to 1.45.2 ([#15](https://github.com/mhajder/glpi-mcp/issues/15)) ([f42a675](https://github.com/mhajder/glpi-mcp/commit/f42a6751963d5bcd803a1bff3bb25d4dd420e492))
+* **deps:** bump the docker group across 1 directory with 2 updates ([#19](https://github.com/mhajder/glpi-mcp/issues/19)) ([38472fc](https://github.com/mhajder/glpi-mcp/commit/38472fc53389e1025709e697dba3e0d0c0fdb048))
+* **deps:** bump the uv-dependencies group across 1 directory with 3 updates ([#25](https://github.com/mhajder/glpi-mcp/issues/25)) ([8b7b647](https://github.com/mhajder/glpi-mcp/commit/8b7b6475c728d5e530753bfb7f4d67934e74ad77))
+* **docker:** harden runtime image and precompile bytecode ([8be8c52](https://github.com/mhajder/glpi-mcp/commit/8be8c52a9ab6009392b4aea879bff42395014544))
+
+
+### 🧪 Tests
+
+* optimize test suite runtime and scope pre-commit stages ([195b5a0](https://github.com/mhajder/glpi-mcp/commit/195b5a071a0c4a9854c15820ffb82f1d91e644c8))
+
 ## [0.1.1](https://github.com/mhajder/glpi-mcp/compare/v0.1.0...v0.1.1) (2026-11-07)
 
 

@@ -8,12 +8,12 @@
     "url": "https://github.com/mhajder/glpi-mcp",
     "source": "github"
   },
-  "version": "0.1.1",
+  "version": "0.2.0",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "glpi-mcp-server",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"
@@ -182,7 +182,7 @@
     {
       "registryType": "pypi",
       "identifier": "glpi-mcp-server",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "runtimeHint": "uvx",
       "transport": {
         "type": "streamable-http",
